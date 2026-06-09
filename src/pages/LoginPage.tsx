@@ -156,11 +156,11 @@ export function LoginPage() {
 
           {/* Demo users hint */}
           <div className="mt-6 pt-6 border-t border-slate-100">
-            <p className="text-xs text-slate-400 text-center mb-3">حسابات تجريبية للاختبار:</p>
+            <p className="text-xs text-slate-400 text-center mb-3">النسخة الأولى </p>
             <div className="space-y-2 text-xs text-slate-500">
               <div className="flex justify-between bg-slate-50 rounded px-3 py-2">
-                <span>الرئيس التنفيذي:</span>
-                <span dir="ltr" className="text-slate-600">ceo@arak.com</span>
+                <span>نظام واعي | اراك:</span>
+                <span dir="ltr" className="text-slate-600">WAi ARAAK | 2026</span>
               </div>
             </div>
           </div>

@@ -238,3 +238,96 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
   development_manager: 'مدير قطاع التنمية',
   monitoring_officer: 'مسؤول المتابعة التنفيذية',
 };
+
+export interface DocumentFolder {
+  id: string;
+  name_ar: string;
+  name_en?: string;
+  parent_folder_id?: string;
+  project_id?: string;
+  created_by: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  children?: DocumentFolder[];
+  documents?: Document[];
+}
+
+export interface Document {
+  id: string;
+  title_ar: string;
+  title_en?: string;
+  description?: string;
+  folder_id?: string;
+  file_url: string;
+  file_type?: string;
+  file_size?: number;
+  version: number;
+  parent_document_id?: string;
+  project_id?: string;
+  task_id?: string;
+  uploaded_by: string;
+  is_public: boolean;
+  tags?: string[];
+  created_at: string;
+  updated_at: string;
+  uploader?: UserProfile;
+  project?: Project;
+}
+
+export interface MessageChannel {
+  id: string;
+  name_ar: string;
+  name_en?: string;
+  channel_type: 'direct' | 'group' | 'project' | 'department';
+  project_id?: string;
+  created_by: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  members?: ChannelMember[];
+  lastMessage?: Message;
+  unreadCount?: number;
+}
+
+export interface ChannelMember {
+  id: string;
+  channel_id: string;
+  user_id: string;
+  role: 'admin' | 'member';
+  last_read_at?: string;
+  joined_at: string;
+  user?: UserProfile;
+}
+
+export interface Message {
+  id: string;
+  sender_id: string;
+  channel_id?: string;
+  parent_message_id?: string;
+  content: string;
+  message_type: 'text' | 'system' | 'file_shared' | 'task_assigned' | 'note';
+  attachment_url?: string;
+  attachment_type?: string;
+  is_pinned: boolean;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+  sender?: UserProfile;
+  replies?: Message[];
+}
+
+export interface Note {
+  id: string;
+  user_id: string;
+  title: string;
+  content?: string;
+  color: string;
+  is_pinned: boolean;
+  project_id?: string;
+  task_id?: string;
+  tags?: string[];
+  created_at: string;
+  updated_at: string;
+  project?: Project;
+}
