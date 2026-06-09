@@ -13,6 +13,12 @@ import type {
   TaskStatus,
   ProgressUpdate,
   UserPermission,
+  Document,
+  DocumentFolder,
+  Message,
+  MessageChannel,
+  ChannelMember,
+  Note,
 } from '../types/database';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -29,6 +35,21 @@ export function useStrategicTracks() {
       return data as StrategicTrack[];
     },
   });
+}
+// أضف هذه الدوال في نهاية ملف src/hooks/useData.ts
+export function useOnlineUsers() {
+  return useQuery({
+    queryKey: ['online_users'],
+    queryFn: async () => {
+      // منطق جلب المستخدمين المتصلين من Supabase
+      return []; 
+    }
+  });
+}
+
+export function useHeartbeat() {
+  // منطق الـ Heartbeat إذا كنت تحتاجه لتحديث الحالة
+  return null;
 }
 
 export function useProjects(trackId?: string, status?: ProjectStatus) {
@@ -673,4 +694,367 @@ export function useDeactivateUser() {
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
   });
+}
+
+// ==========================================
+// Documents hooks
+// ==========================================
+
+export function useDocumentFolders(parentId?: string, projectId?: string) {
+  return useQuery({
+    queryKey: ['document-folders', parentId, projectId],
+    queryFn: async () => {
+      let query = supabase
+        .from('document_folders')
+        .select('*')
+        .order('sort_order');
+
+      if (parentId) {
+        query = query.eq('parent_folder_id', parentId);
+      } else {
+        query = query.is('parent_folder_id', null);
+      }
+      if (projectId) {
+        query = query.eq('project_id', projectId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as DocumentFolder[];
+    },
+  });
+}
+
+export function useDocuments(folderId?: string, projectId?: string) {
+  return useQuery({
+    queryKey: ['documents', folderId, projectId],
+    queryFn: async () => {
+      let query = supabase
+        .from('documents')
+        .select(`
+          *,
+          uploader:user_profiles!uploaded_by(id, full_name_ar, role),
+          project:projects(id, name_ar)
+        `)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false });
+
+      if (folderId) {
+        query = query.eq('folder_id', folderId);
+      }
+      if (projectId) {
+        query = query.eq('project_id', projectId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as (Document & { uploader: UserProfile; project?: Project })[];
+    },
+  });
+}
+
+export function useCreateFolder() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: async (folder: { name_ar: string; name_en?: string; parent_folder_id?: string; project_id?: string }) => {
+      const { data, error } = await supabase
+        .from('document_folders')
+        .insert({ ...folder, created_by: profile?.id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['document-folders'] });
+    },
+  });
+}
+
+export function useUploadDocument() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: async (doc: {
+      title_ar: string;
+      title_en?: string;
+      description?: string;
+      folder_id?: string;
+      file_url: string;
+      file_type?: string;
+      file_size?: number;
+      project_id?: string;
+      task_id?: string;
+      is_public?: boolean;
+      tags?: string[];
+    }) => {
+      const { data, error } = await supabase
+        .from('documents')
+        .insert({ ...doc, uploaded_by: profile?.id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+    },
+  });
+}
+
+export function useDeleteDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (docId: string) => {
+      const { error } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', docId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+    },
+  });
+}
+
+// ==========================================
+// Messages hooks
+// ==========================================
+
+export function useChannels() {
+  const { profile } = useAuth();
+
+  return useQuery({
+    queryKey: ['channels', profile?.id],
+    queryFn: async () => {
+      if (!profile) return [];
+      const { data, error } = await supabase
+        .from('message_channels')
+        .select(`
+          *,
+          members:channel_members(user_id, role, last_read_at)
+        `)
+        .eq('is_active', true)
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      return data as (MessageChannel & { members: ChannelMember[] })[];
+    },
+    enabled: !!profile,
+  });
+}
+
+export function useChannelMessages(channelId: string) {
+  return useQuery({
+    queryKey: ['channel-messages', channelId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select(`
+          *,
+          sender:user_profiles!sender_id(id, full_name_ar, role)
+        `)
+        .eq('channel_id', channelId)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: true })
+        .limit(200);
+      if (error) throw error;
+      return data as (Message & { sender: UserProfile })[];
+    },
+    enabled: !!channelId,
+  });
+}
+
+export function useSendMessage() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: async (msg: { channel_id: string; content: string; message_type?: string; attachment_url?: string; attachment_type?: string }) => {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          ...msg,
+          sender_id: profile?.id,
+          message_type: msg.message_type || 'text',
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['channel-messages', variables.channel_id] });
+      queryClient.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+export function useCreateChannel() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({ name, type, memberIds }: { name: string; type: 'direct' | 'group' | 'project'; memberIds: string[] }) => {
+      const { data: channel, error: chError } = await supabase
+        .from('message_channels')
+        .insert({ name_ar: name, channel_type: type, created_by: profile?.id })
+        .select()
+        .single();
+      if (chError) throw chError;
+
+      // Add creator as admin
+      const members = [
+        { channel_id: channel.id, user_id: profile?.id, role: 'admin' },
+        ...memberIds.map(uid => ({ channel_id: channel.id, user_id: uid, role: 'member' as const })),
+      ];
+      const { error: memError } = await supabase
+        .from('channel_members')
+        .insert(members);
+      if (memError) throw memError;
+
+      return channel;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+// ==========================================
+// Notes hooks
+// ==========================================
+
+export function useNotes(projectId?: string) {
+  const { profile } = useAuth();
+
+  return useQuery({
+    queryKey: ['notes', profile?.id, projectId],
+    queryFn: async () => {
+      if (!profile) return [];
+      let query = supabase
+        .from('notes')
+        .select(`
+          *,
+          project:projects(id, name_ar)
+        `)
+        .order('is_pinned', { ascending: false })
+        .order('updated_at', { ascending: false });
+
+      if (projectId) {
+        query = query.eq('project_id', projectId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as (Note & { project?: Project })[];
+    },
+    enabled: !!profile,
+  });
+}
+
+export function useCreateNote() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: async (note: { title: string; content?: string; color?: string; project_id?: string; task_id?: string; tags?: string[] }) => {
+      const { data, error } = await supabase
+        .from('notes')
+        .insert({ ...note, user_id: profile?.id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes'] });
+    },
+  });
+}
+
+export function useUpdateNote() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<Note> }) => {
+      const { data, error } = await supabase
+        .from('notes')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes'] });
+    },
+  });
+}
+
+export function useDeleteNote() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (noteId: string) => {
+      const { error } = await supabase
+        .from('notes')
+        .delete()
+        .eq('id', noteId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes'] });
+    },
+  });
+}
+
+// ==========================================
+// Presence hooks
+// ==========================================
+
+export interface OnlineUser {
+  user_id: string;
+  last_heartbeat: string;
+  page_path: string;
+  user?: UserProfile;
+}
+
+export function useOnlineUsers() {
+  return useQuery({
+    queryKey: ['online-users'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('user_presence')
+        .select(`
+          user_id,
+          last_heartbeat,
+          page_path,
+          user:user_profiles(id, full_name_ar, role)
+        `)
+        .eq('is_active', true)
+        .gt('last_heartbeat', new Date(Date.now() - 2 * 60 * 1000).toISOString())
+        .order('last_heartbeat', { ascending: false });
+      if (error) throw error;
+      return data as OnlineUser[];
+    },
+    refetchInterval: 30000,
+  });
+}
+
+export function useHeartbeat() {
+  const { profile } = useAuth();
+
+  const sendHeartbeat = async (pagePath: string = '/') => {
+    if (!profile) return;
+    const { error } = await supabase.rpc('upsert_user_presence', { p_page_path: pagePath });
+    if (error) console.error('Heartbeat error:', error);
+  };
+
+  return { sendHeartbeat };
 }
