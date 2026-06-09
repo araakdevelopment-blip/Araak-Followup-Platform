@@ -36,21 +36,6 @@ export function useStrategicTracks() {
     },
   });
 }
-// أضف هذه الدوال في نهاية ملف src/hooks/useData.ts
-export function useOnlineUsers() {
-  return useQuery({
-    queryKey: ['online_users'],
-    queryFn: async () => {
-      // منطق جلب المستخدمين المتصلين من Supabase
-      return []; 
-    }
-  });
-}
-
-export function useHeartbeat() {
-  // منطق الـ Heartbeat إذا كنت تحتاجه لتحديث الحالة
-  return null;
-}
 
 export function useProjects(trackId?: string, status?: ProjectStatus) {
   return useQuery({
@@ -1025,36 +1010,42 @@ export interface OnlineUser {
   user?: UserProfile;
 }
 
+
+// إضافة ميزة تتبع المستخدمين المتصلين
 export function useOnlineUsers() {
   return useQuery({
-    queryKey: ['online-users'],
+    queryKey: ['online_users'],
     queryFn: async () => {
+      // جلب المستخدمين الذين لديهم آخر تحديث نشط (مثلاً خلال آخر 5 دقائق)
       const { data, error } = await supabase
-        .from('user_presence')
-        .select(`
-          user_id,
-          last_heartbeat,
-          page_path,
-          user:user_profiles(id, full_name_ar, role)
-        `)
-        .eq('is_active', true)
-        .gt('last_heartbeat', new Date(Date.now() - 2 * 60 * 1000).toISOString())
-        .order('last_heartbeat', { ascending: false });
+        .from('profiles')
+        .select('id, full_name_ar, last_seen')
+        .gt('last_seen', new Date(Date.now() - 5 * 60 * 1000).toISOString());
+      
       if (error) throw error;
-      return data as OnlineUser[];
+      return data || [];
     },
-    refetchInterval: 30000,
+    refetchInterval: 30000 // تحديث تلقائي كل 30 ثانية
   });
 }
 
+// دالة لتحديث حالة اتصال المستخدم (يتم استدعاؤها في Layout)
 export function useHeartbeat() {
-  const { profile } = useAuth();
-
-  const sendHeartbeat = async (pagePath: string = '/') => {
-    if (!profile) return;
-    const { error } = await supabase.rpc('upsert_user_presence', { p_page_path: pagePath });
-    if (error) console.error('Heartbeat error:', error);
-  };
-
-  return { sendHeartbeat };
+  const { data: user } = useAuth(); // افتراض أنك تستخدم AuthContext
+  
+  return useQuery({
+    queryKey: ['heartbeat', user?.id],
+    queryFn: async () => {
+      if (!user) return null;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ last_seen: new Date().toISOString() })
+        .eq('id', user.id);
+      
+      if (error) console.error("Heartbeat error:", error);
+      return true;
+    },
+    enabled: !!user,
+    refetchInterval: 60000 // إرسال نبضة كل دقيقة
+  });
 }
